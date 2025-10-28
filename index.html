@@ -391,6 +391,8 @@
     </div>
 
     <script>
+        console.log('🚀 Script iniciado!');
+        
         // Elementos do DOM
         const uploadSection = document.getElementById('uploadSection');
         const fileInput = document.getElementById('fileInput');
@@ -403,11 +405,23 @@
         const metricsSection = document.getElementById('metricsSection');
         const apiKeyInput = document.getElementById('apiKey');
         const errorMessage = document.getElementById('errorMessage');
+        
+        console.log('✅ Elementos carregados:', {
+            uploadSection: !!uploadSection,
+            fileInput: !!fileInput,
+            analyzeBtn: !!analyzeBtn,
+            apiKeyInput: !!apiKeyInput
+        });
 
         let selectedFile = null;
 
         // Event listeners para upload
-        uploadSection.addEventListener('click', () => fileInput.click());
+        console.log('📌 Registrando event listeners...');
+        
+        uploadSection.addEventListener('click', () => {
+            console.log('🖱️ Upload section clicada!');
+            fileInput.click();
+        });
         
         uploadSection.addEventListener('dragover', (e) => {
             e.preventDefault();
@@ -789,11 +803,6 @@ REGRAS:
                 alert('✅ Histórico limpo com sucesso!');
             }
         }
-                    <h4>Menor Nota</h4>
-                    <div class="value">${notaMaisBaixa.toFixed(1)}</div>
-                </div>
-            `;
-        }
 
         function showError(message) {
             errorMessage.textContent = '❌ ' + message;
@@ -804,7 +813,9 @@ REGRAS:
         }
 
         async function testConnection() {
+            console.log('🧪 testConnection() chamada!');
             const apiKey = apiKeyInput.value.trim();
+            console.log('🔑 API Key:', apiKey ? 'Presente' : 'Vazia');
             
             if (!apiKey) {
                 showError('Por favor, insira sua API Key primeiro.');
