@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gerar Prova de Exemplo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .exam-page {
+            background: white;
+            padding: 40px;
+            border: 2px solid #333;
+            margin: 20px 0;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #333;
+            padding-bottom: 20px;
+        }
+        .question {
+            margin: 25px 0;
+            padding: 15px;
+            border-left: 3px solid #667eea;
+            background: #f9f9f9;
+        }
+        .grade {
+            float: right;
+            color: #d63031;
+            font-weight: bold;
+            font-size: 18px;
+            background: #ffe5e5;
+            padding: 5px 15px;
+            border-radius: 5px;
+            border: 2px solid #d63031;
+        }
+        .total {
+            margin-top: 40px;
+            padding: 20px;
+            background: #667eea;
+            color: white;
+            text-align: center;
+            font-size: 24px;
+            font-weight: bold;
+            border-radius: 10px;
+        }
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 8px;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #5568d3;
+        }
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+            padding: 10px 20px;
+            background: white;
+            border-radius: 8px;
+            border: 2px solid #667eea;
+            transition: all 0.3s;
+        }
+        .back-link:hover {
+            background: #667eea;
+            color: white;
+            transform: translateX(-5px);
+        }
+        .instructions {
+            background: #fff3cd;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 2px solid #ffc107;
+        }
+    </style>
+</head>
+<body>
+    <a href="index.html" class="back-link">← Voltar para o Analisador</a>
+    
+    <div class="instructions">
+        <h2>📸 Como usar este gerador:</h2>
+        <ol>
+            <li>Clique em "Gerar Prova de Exemplo" para criar uma prova visual</li>
+            <li>Clique em "Baixar como Imagem" para salvar</li>
+            <li>Use essa imagem no analisador de provas</li>
+            <li>Ou tire um print/screenshot da prova gerada!</li>
+        </ol>
+    </div>
+
+    <button onclick="generateExam()">🎲 Gerar Prova de Exemplo</button>
+    <button onclick="downloadAsImage()">💾 Baixar como Imagem</button>
+
+    <div id="examContainer"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script>
+        function generateExam() {
+            const numQuestions = Math.floor(Math.random() * 5) + 5; // 5-10 questões
+            let questions = [];
+            let total = 0;
+
+            for (let i = 1; i <= numQuestions; i++) {
+                const maxGrade = Math.random() > 0.5 ? 2.0 : 1.0;
+                const grade = Math.round((Math.random() * maxGrade) * 2) / 2; // 0, 0.5, 1.0, 1.5, 2.0
+                questions.push({ number: i, grade: grade });
+                total += grade;
+            }
+
+            const examHTML = `
+                <div class="exam-page" id="examPage">
+                    <div class="header">
+                        <h1>PROVA DE MATEMÁTICA</h1>
+                        <p>Aluno: João da Silva | Turma: 8º A | Data: ${new Date().toLocaleDateString('pt-BR')}</p>
+                    </div>
+                    ${questions.map(q => `
+                        <div class="question">
+                            <span class="grade">${q.grade.toFixed(1)}</span>
+                            <strong>Questão ${q.number}:</strong> Resolva a equação do ${q.number}º grau...
+                            <p style="margin-top: 10px; color: #666;">
+                                <i>Resposta do aluno...</i>
+                            </p>
+                        </div>
+                    `).join('')}
+                    <div class="total">
+                        NOTA FINAL: ${total.toFixed(1)} pontos
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('examContainer').innerHTML = examHTML;
+        }
+
+        async function downloadAsImage() {
+            const examPage = document.getElementById('examPage');
+            if (!examPage) {
+                alert('Primeiro gere uma prova clicando em "Gerar Prova de Exemplo"');
+                return;
+            }
+
+            const canvas = await html2canvas(examPage, {
+                scale: 2,
+                backgroundColor: '#ffffff'
+            });
+
+            canvas.toBlob((blob) => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'prova-exemplo-' + Date.now() + '.png';
+                a.click();
+                URL.revokeObjectURL(url);
+            });
+        }
+
+        // Gerar uma prova automaticamente ao carregar
+        window.onload = generateExam;
+    </script>
+</body>
+</html>
