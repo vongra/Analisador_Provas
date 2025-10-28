@@ -321,10 +321,9 @@
     <div class="container">
         <div class="header">
             <h1>📝 Analisador de Provas com IA</h1>
-            <p>Teste de viabilidade - OCR e extração de notas</p>
+            <p>Extração automática de notas com reconhecimento inteligente</p>
             <div class="header-links">
-                <a href="gerador.html" target="_blank">🎲 Gerar Prova Exemplo</a>
-                <a href="docs/inicio-rapido.md" target="_blank">📖 Documentação</a>
+                <a href="#metricas" onclick="scrollToMetrics()">📊 Ver Métricas</a>
             </div>
         </div>
 
@@ -378,11 +377,15 @@
                     </tbody>
                 </table>
 
+                <h2 id="metricas" style="margin-top: 40px;">📊 Métricas da Turma</h2>
+                <p style="color: #666; margin-bottom: 20px;">Baseado em todas as provas analisadas nesta sessão</p>
+                
                 <div class="metrics" id="metricsSection">
                     <!-- Preenchido dinamicamente -->
                 </div>
 
                 <button class="btn" onclick="location.reload()">🔄 Analisar Nova Prova</button>
+                <button class="btn" onclick="clearHistory()" style="background: #dc3545;">🗑️ Limpar Histórico</button>
             </div>
         </div>
     </div>
@@ -492,152 +495,300 @@
         }
 
         async function analyzeWithGemini(apiKey, base64Image) {
-            const url = `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+            // Tentar múltiplos nomes de modelo até encontrar um que funcione
+            const modelNames = [
+                'gemini-2.0-flash-exp',  // Modelo experimental mais recente
+                'gemini-1.5-flash',
+                'gemini-1.5-flash-002',
+                'gemini-pro-vision',
+                'gemini-1.5-pro',
+                'gemini-pro'
+            ];
             
-            const prompt = `Você é um assistente especializado em análise de provas escolares. 
-            
-Analise esta imagem de uma prova corrigida e extraia as seguintes informações:
-1. Identifique cada questão e a nota atribuída pelo professor
-2. As notas podem estar escritas à mão ou digitadas
-3. Procure por números que representam pontuações (ex: 2.0, 1.5, 10, 0.5, etc)
+            const prompt = `Você é um assistente especializado em análise de provas escolares corrigidas.
 
-Retorne APENAS um JSON válido no seguinte formato (sem markdown, sem explicações):
+INSTRUÇÕES IMPORTANTES:
+
+1. PRIORIDADE MÁXIMA - NOTA FINAL:
+   - Procure PRIMEIRO por uma nota final da prova
+   - Geralmente está no TOPO da página, em destaque
+   - Pode estar circulada, em vermelho, ou em uma caixa
+   - Pode ter rótulos como "Nota:", "Nota da prova:", "Total:", ou apenas o número
+   - Esta é a informação MAIS IMPORTANTE
+
+2. IDENTIFICAR NOTAS INDIVIDUAIS:
+   - Procure por números escritos à caneta/marcador (geralmente em vermelho)
+   - Números circulados ou destacados
+   - Podem estar ao lado de questões, itens, ou partes da prova
+   - Não assuma uma estrutura fixa (Questão 1, 2, 3...)
+   - A prova pode ter estruturas variadas: a), b), c) ou 1), 2) ou sem numeração clara
+
+3. ANÁLISE INTELIGENTE:
+   - Identifique a estrutura real da prova
+   - Se houver "Questão 1", "Q1:", "1)", "a)", capture isso
+   - Se não houver estrutura clara, apenas liste as notas encontradas
+   - Ignore números que fazem parte de cálculos ou respostas
+
+FORMATO DE RESPOSTA - Retorne APENAS este JSON:
 {
+  "notaFinal": 9.75,
+  "notaFinalEncontrada": true,
   "questoes": [
-    {"numero": 1, "nota": 2.0},
-    {"numero": 2, "nota": 1.5},
-    {"numero": 3, "nota": 2.5}
-  ]
+    {"identificador": "Q1", "nota": 2.5},
+    {"identificador": "Q2", "nota": 2.5},
+    {"identificador": "a)", "nota": 1.0}
+  ],
+  "observacoes": "Prova de Cálculo com 4 questões. Nota final circulada no topo."
 }
 
-IMPORTANTE: 
-- Retorne APENAS o JSON, sem texto adicional
-- Se não conseguir identificar notas claramente, retorne um array vazio
-- Converta todas as notas para números decimais`;
+REGRAS:
+- Se não encontrar nota final, use: "notaFinalEncontrada": false, "notaFinal": null
+- Se não conseguir identificar notas individuais, retorne array vazio em "questoes"
+- Em "identificador", use o que estiver escrito na prova (Q1, 1), a), questão 1, etc)
+- Em "observacoes", descreva brevemente o que você viu
+- SEMPRE priorize a nota final se ela existir
+- Números grandes e destacados provavelmente são notas finais
+- Retorne APENAS o JSON, sem markdown ou texto adicional`;
 
-            let response;
-            try {
-                response = await fetch(url, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        contents: [{
-                            parts: [
-                                { text: prompt },
-                                {
-                                    inline_data: {
-                                        mime_type: selectedFile.type,
-                                        data: base64Image
-                                    }
-                                }
-                            ]
-                        }]
-                    })
-                });
-            } catch (fetchError) {
-                // Erro de rede - provavelmente CORS ou firewall
-                throw new Error(
-                    'Erro de conexão. Possíveis causas:\n\n' +
-                    '1. CORS: Abra o arquivo usando um servidor local\n' +
-                    '   Execute: python3 -m http.server 8000\n' +
-                    '   Acesse: http://localhost:8000/prova-analyzer.html\n\n' +
-                    '2. Firewall/Antivírus bloqueando a requisição\n\n' +
-                    '3. Sem conexão com a internet\n\n' +
-                    'Erro original: ' + fetchError.message
-                );
-            }
-
-            if (!response.ok) {
-                let errorMessage = 'Erro na API do Gemini';
+            let lastError = null;
+            
+            // Tentar cada modelo
+            for (const modelName of modelNames) {
                 try {
-                    const errorData = await response.json();
-                    if (errorData.error?.message) {
-                        errorMessage = errorData.error.message;
-                        
-                        // Mensagens mais amigáveis para erros comuns
-                        if (errorMessage.includes('API key not valid')) {
-                            errorMessage = 'API Key inválida. Gere uma nova em: https://makersuite.google.com/app/apikey';
-                        } else if (errorMessage.includes('quota')) {
-                            errorMessage = 'Limite de uso da API atingido. Aguarde alguns minutos ou gere uma nova API Key.';
-                        }
+                    const url = `https://generativelanguage.googleapis.com/v1/models/${modelName}:generateContent?key=${apiKey}`;
+                    
+                    let response;
+                    try {
+                        response = await fetch(url, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                contents: [{
+                                    parts: [
+                                        { text: prompt },
+                                        {
+                                            inline_data: {
+                                                mime_type: selectedFile.type,
+                                                data: base64Image
+                                            }
+                                        }
+                                    ]
+                                }]
+                            })
+                        });
+                    } catch (fetchError) {
+                        // Erro de rede
+                        throw new Error(
+                            'Erro de conexão. Possíveis causas:\n\n' +
+                            '1. CORS: Abra o arquivo usando um servidor local\n' +
+                            '   Execute: python3 -m http.server 8000\n' +
+                            '   Acesse: http://localhost:8000/index.html\n\n' +
+                            '2. Firewall/Antivírus bloqueando a requisição\n\n' +
+                            '3. Sem conexão com a internet\n\n' +
+                            'Erro original: ' + fetchError.message
+                        );
                     }
-                } catch (e) {
-                    errorMessage = `Erro HTTP ${response.status}: ${response.statusText}`;
-                }
-                throw new Error(errorMessage);
-            }
 
-            const data = await response.json();
-            
-            if (!data.candidates || !data.candidates[0]) {
-                throw new Error('Resposta inesperada da API. Tente novamente.');
+                    if (response.ok) {
+                        // Sucesso! Processar resposta
+                        const data = await response.json();
+                        
+                        if (!data.candidates || !data.candidates[0]) {
+                            lastError = 'Resposta inesperada da API. Tentando próximo modelo...';
+                            continue;
+                        }
+                        
+                        const text = data.candidates[0].content.parts[0].text;
+                        
+                        // Extrair JSON do texto
+                        const jsonMatch = text.match(/\{[\s\S]*\}/);
+                        if (!jsonMatch) {
+                            lastError = 'Não foi possível extrair dados da resposta';
+                            continue;
+                        }
+                        
+                        const result = JSON.parse(jsonMatch[0]);
+                        
+                        // Validar se temos pelo menos a nota final OU questões
+                        if (!result.notaFinalEncontrada && (!result.questoes || result.questoes.length === 0)) {
+                            lastError = 'Não foi possível identificar notas na imagem';
+                            continue;
+                        }
+                        
+                        // Sucesso! Retornar resultado completo
+                        console.log(`✅ Modelo funcionando: ${modelName}`);
+                        console.log('📊 Resultado:', result);
+                        return result;
+                        
+                    } else {
+                        // Erro HTTP - tentar próximo modelo
+                        const errorData = await response.json().catch(() => ({}));
+                        lastError = errorData.error?.message || `HTTP ${response.status}`;
+                        console.log(`❌ Modelo ${modelName} falhou: ${lastError}`);
+                        continue;
+                    }
+                    
+                } catch (error) {
+                    // Se for erro de rede/CORS, não tentar outros modelos
+                    if (error.message.includes('Erro de conexão')) {
+                        throw error;
+                    }
+                    lastError = error.message;
+                    continue;
+                }
             }
             
-            const text = data.candidates[0].content.parts[0].text;
-            
-            // Extrair JSON do texto (remove markdown se houver)
-            const jsonMatch = text.match(/\{[\s\S]*\}/);
-            if (!jsonMatch) {
-                throw new Error('Não foi possível extrair dados da resposta da IA');
-            }
-            
-            const result = JSON.parse(jsonMatch[0]);
-            
-            if (!result.questoes || result.questoes.length === 0) {
-                throw new Error('Não foi possível identificar notas na imagem. Tente com uma imagem mais clara.');
-            }
-            
-            return result.questoes;
+            // Se chegou aqui, nenhum modelo funcionou
+            throw new Error(
+                'Nenhum modelo Gemini funcionou. Último erro: ' + lastError + '\n\n' +
+                'Soluções:\n' +
+                '1. Use o Testador de Modelos para descobrir qual modelo está disponível\n' +
+                '2. Gere uma nova API Key em: https://makersuite.google.com/app/apikey\n' +
+                '3. Verifique se sua conta tem acesso à API do Gemini'
+            );
         }
 
-        function displayResults(grades) {
+        function displayResults(data) {
             // Limpar tabela
             gradesTableBody.innerHTML = '';
             
-            // Adicionar linhas de questões
-            let total = 0;
-            grades.forEach(grade => {
-                const row = document.createElement('tr');
-                row.innerHTML = `
-                    <td>Questão ${grade.numero}</td>
-                    <td>${grade.nota.toFixed(1)}</td>
+            // Exibir NOTA FINAL em destaque se encontrada
+            if (data.notaFinalEncontrada && data.notaFinal !== null) {
+                const finalGradeRow = document.createElement('tr');
+                finalGradeRow.style.background = '#28a745';
+                finalGradeRow.style.color = 'white';
+                finalGradeRow.style.fontSize = '20px';
+                finalGradeRow.style.fontWeight = 'bold';
+                finalGradeRow.innerHTML = `
+                    <td>🎯 NOTA FINAL DA PROVA</td>
+                    <td>${typeof data.notaFinal === 'number' ? data.notaFinal.toFixed(1) : data.notaFinal}</td>
                 `;
-                gradesTableBody.appendChild(row);
-                total += grade.nota;
+                gradesTableBody.appendChild(finalGradeRow);
+            }
+            
+            // Adicionar notas individuais se existirem
+            if (data.questoes && data.questoes.length > 0) {
+                // Linha separadora
+                const separatorRow = document.createElement('tr');
+                separatorRow.style.background = '#f0f1ff';
+                separatorRow.innerHTML = `
+                    <td colspan="2" style="text-align: center; padding: 10px; font-weight: bold; color: #667eea;">
+                        📝 Notas por Item
+                    </td>
+                `;
+                gradesTableBody.appendChild(separatorRow);
+                
+                // Adicionar linhas de itens
+                let totalItens = 0;
+                data.questoes.forEach(item => {
+                    const row = document.createElement('tr');
+                    const confianca = item.confianca || 'media';
+                    const confiancaIcon = confianca === 'alta' ? '✅' : confianca === 'media' ? '⚠️' : '❓';
+                    
+                    row.innerHTML = `
+                        <td>${confiancaIcon} ${item.identificador || 'Item'}</td>
+                        <td>${typeof item.nota === 'number' ? item.nota.toFixed(1) : item.nota}</td>
+                    `;
+                    gradesTableBody.appendChild(row);
+                    if (typeof item.nota === 'number') {
+                        totalItens += item.nota;
+                    }
+                });
+                
+                // Total dos itens (pode ser diferente da nota final)
+                const totalItensRow = document.createElement('tr');
+                totalItensRow.className = 'total-row';
+                totalItensRow.innerHTML = `
+                    <td>SOMA DOS ITENS</td>
+                    <td>${totalItens.toFixed(1)}</td>
+                `;
+                gradesTableBody.appendChild(totalItensRow);
+            }
+            
+            // Observações
+            if (data.observacoes) {
+                const obsRow = document.createElement('tr');
+                obsRow.style.background = '#fff3cd';
+                obsRow.innerHTML = `
+                    <td colspan="2" style="padding: 15px;">
+                        <strong>📋 Observações:</strong><br>
+                        ${data.observacoes}
+                    </td>
+                `;
+                gradesTableBody.appendChild(obsRow);
+            }
+            
+            // Armazenar resultado para métricas
+            if (!window.provasAnalisadas) {
+                window.provasAnalisadas = [];
+            }
+            window.provasAnalisadas.push({
+                data: new Date().toISOString(),
+                notaFinal: data.notaFinal,
+                numItens: data.questoes ? data.questoes.length : 0,
+                observacoes: data.observacoes
             });
             
-            // Adicionar linha de total
-            const totalRow = document.createElement('tr');
-            totalRow.className = 'total-row';
-            totalRow.innerHTML = `
-                <td>TOTAL</td>
-                <td>${total.toFixed(1)}</td>
-            `;
-            gradesTableBody.appendChild(totalRow);
+            // Atualizar métricas gerais
+            updateMetrics();
+        }
+        
+        function updateMetrics() {
+            if (!window.provasAnalisadas || window.provasAnalisadas.length === 0) {
+                metricsSection.innerHTML = `
+                    <div class="metric-card">
+                        <h4>Nenhuma prova analisada ainda</h4>
+                        <div class="value">-</div>
+                    </div>
+                `;
+                return;
+            }
             
-            // Calcular métricas
-            const notasArray = grades.map(g => g.nota);
-            const media = total / grades.length;
-            const notaMaisAlta = Math.max(...notasArray);
-            const notaMaisBaixa = Math.min(...notasArray);
+            const provas = window.provasAnalisadas;
+            const notasValidas = provas.filter(p => p.notaFinal !== null).map(p => p.notaFinal);
             
-            // Exibir métricas
+            const totalProvas = provas.length;
+            const mediaTurma = notasValidas.length > 0 ? 
+                (notasValidas.reduce((a, b) => a + b, 0) / notasValidas.length) : 0;
+            const notaMaisAlta = notasValidas.length > 0 ? Math.max(...notasValidas) : 0;
+            const notaMaisBaixa = notasValidas.length > 0 ? Math.min(...notasValidas) : 0;
+            
             metricsSection.innerHTML = `
                 <div class="metric-card">
-                    <h4>Total de Pontos</h4>
-                    <div class="value">${total.toFixed(1)}</div>
+                    <h4>Provas Analisadas</h4>
+                    <div class="value">${totalProvas}</div>
                 </div>
                 <div class="metric-card">
-                    <h4>Média por Questão</h4>
-                    <div class="value">${media.toFixed(1)}</div>
+                    <h4>Média da Turma</h4>
+                    <div class="value">${mediaTurma.toFixed(1)}</div>
                 </div>
                 <div class="metric-card">
                     <h4>Maior Nota</h4>
                     <div class="value">${notaMaisAlta.toFixed(1)}</div>
                 </div>
                 <div class="metric-card">
+                    <h4>Menor Nota</h4>
+                    <div class="value">${notaMaisBaixa.toFixed(1)}</div>
+                </div>
+            `;
+        }
+        
+        function scrollToMetrics() {
+            const metrics = document.getElementById('metricsSection');
+            if (metrics) {
+                metrics.scrollIntoView({ behavior: 'smooth' });
+            }
+        }
+        
+        function clearHistory() {
+            if (confirm('Deseja realmente limpar o histórico de todas as provas analisadas?')) {
+                window.provasAnalisadas = [];
+                updateMetrics();
+                alert('✅ Histórico limpo com sucesso!');
+            }
+        }
                     <h4>Menor Nota</h4>
                     <div class="value">${notaMaisBaixa.toFixed(1)}</div>
                 </div>
@@ -666,35 +817,48 @@ IMPORTANTE:
             errorMessage.style.color = '#0c5460';
             errorMessage.classList.add('active');
 
-            try {
-                const url = `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-                
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        contents: [{
-                            parts: [{ text: 'Teste de conexão. Responda apenas: OK' }]
-                        }]
-                    })
-                });
+            const modelNames = [
+                'gemini-2.0-flash-exp',
+                'gemini-1.5-flash',
+                'gemini-1.5-flash-002',
+                'gemini-pro-vision',
+                'gemini-1.5-pro',
+                'gemini-pro'
+            ];
 
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    let errorMsg = errorData.error?.message || 'Erro desconhecido';
-                    
-                    if (errorMsg.includes('API key not valid')) {
-                        throw new Error('❌ API Key inválida! Gere uma nova em: https://makersuite.google.com/app/apikey');
-                    } else if (errorMsg.includes('quota')) {
-                        throw new Error('⚠️ Limite de uso atingido. Aguarde alguns minutos ou gere uma nova API Key.');
-                    } else {
-                        throw new Error('❌ Erro na API: ' + errorMsg);
+            try {
+                let workingModel = null;
+                
+                for (const modelName of modelNames) {
+                    try {
+                        const url = `https://generativelanguage.googleapis.com/v1/models/${modelName}:generateContent?key=${apiKey}`;
+                        
+                        const response = await fetch(url, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                contents: [{
+                                    parts: [{ text: 'Teste de conexão. Responda apenas: OK' }]
+                                }]
+                            })
+                        });
+
+                        if (response.ok) {
+                            workingModel = modelName;
+                            break;
+                        }
+                    } catch (e) {
+                        continue;
                     }
                 }
 
-                errorMessage.textContent = '✅ Conexão OK! API funcionando perfeitamente. Você pode carregar uma prova agora.';
+                if (!workingModel) {
+                    throw new Error('Nenhum modelo Gemini funcionou. Use o Testador de Modelos para descobrir qual está disponível.');
+                }
+
+                errorMessage.textContent = `✅ Conexão OK! Modelo funcionando: ${workingModel}`;
                 errorMessage.style.background = '#d4edda';
                 errorMessage.style.borderColor = '#c3e6cb';
                 errorMessage.style.color = '#155724';
