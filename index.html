@@ -511,12 +511,7 @@
         async function analyzeWithGemini(apiKey, base64Image) {
             // Tentar múltiplos nomes de modelo até encontrar um que funcione
             const modelNames = [
-                'gemini-2.0-flash-exp',  // Modelo experimental mais recente
-                'gemini-1.5-flash',
-                'gemini-1.5-flash-002',
-                'gemini-pro-vision',
-                'gemini-1.5-pro',
-                'gemini-pro'
+                'gemini-2.5-flash'
             ];
             
             const prompt = `Você é um assistente especializado em análise de provas escolares corrigidas.
